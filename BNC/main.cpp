@@ -6,58 +6,35 @@
 //  Copyright © 2019 Chung-Kyun HAN. All rights reserved.
 //
 
-//#include <cassert>
-//#include <cstdlib>
-//#include <cmath>
-//#include <sstream>
-
 //
-#include <fstream>
-#include "PDPTW_ILP.hpp"
+//#include "PDPTW_ILP.hpp"
+#include <iostream>
+#include "Problem.hpp"
+#include "Etc.hpp"
+#include "BnB/Node.hpp"
 
 #define BUF_SIZE 1024
 
-void createCSV(string fpath, char *header) {
-    fstream fout;
-    fout.open(fpath, ios::out);
-    fout << header << "\n";
-}
 
-void appendRow(string fpath, char *row) {
-    fstream fout;
-    fout.open(fpath, ios::out | ios::app);
-    fout << row << "\n";
-}
-
-
-void appendRows(string fpath, char **rows, int numRows) {
-    fstream fout;
-    fout.open(fpath, ios::out | ios::app);
-    for (int i = 0; i < numRows; i++)
-        fout << rows[i] << "\n";
-}
-
-void csvExample() {
-    char header[BUF_SIZE];
-    sprintf(header, "c%d,c%d,c%d,c%d", 1, 2, 3, 4);
+Problem ex1() {
+    srand(1);
+    int numTasks = 6, num_rrPoints = 2, maxReward = 3;
+    double bv = 2.5, bw = 3.0, bu = 1.0 * 3;
     
-    string fpath = "/Users/ckhan/workspace/BNC/BNC/test.csv";
-    createCSV(fpath, header);
-    char row[BUF_SIZE];
-    sprintf(row, "1, 2, 3, 4");
-    appendRow(fpath, row);
-    char *rows[5];
-    for (int i = 0; i < 5; i++) {
-        rows[i] = row;
-    }
-    appendRows(fpath, rows, 5);
+    Problem pi = gen_problemInstance(numTasks, num_rrPoints, maxReward,
+                                     bv, bw, bu);
+    return pi;
 }
+
+
 
 int main(int argc, const char * argv[]) {
-//    run_example();
-    run_example_PDPTW();
+
+    FilePathOrganizer fpo(argv);
+    Problem prob = ex1();
     
-//    csvExample();
+    Node n0("n0", &prob, &fpo);
+    n0.calc_bound();
     
     return 0;
 }
