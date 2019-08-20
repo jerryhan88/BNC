@@ -13,26 +13,27 @@
 #include <set>
 
 #include "Problem.hpp"
+#include "gurobi_c++.h"
 
-typedef std::pair<int, int> arc;
+typedef std::pair<int, int> edge;
 
-std::set<arc> get_delta_S(std::set<int> S, const Problem &prmt);
-std::set<int> get_sigma_S(std::set<int> S, const Problem &prmt);
-std::set<int> get_pi_S(std::set<int> S, const Problem &prmt);
-std::set<int> get_bar_S(std::set<int> S, const Problem &prmt);
+std::set<edge> get_delta_S(const std::set<int> &S, const Problem &prmt);
+std::set<int> get_sigma_S(const std::set<int> &S, const Problem &prmt);
+std::set<int> get_pi_S(const std::set<int> &S, const Problem &prmt);
+std::set<int> get_bar_S(const std::set<int> &S, const Problem &prmt);
 
 
 template<typename T1, typename T2>
 void get_SEC1_LHS(T1 *lhs, T2 **x_ij,
                   const std::set<int> &S,
                   const Problem &prmt) {
-    std::set<arc> delta_S = get_delta_S(S, prmt);
+    std::set<edge> delta_S = get_delta_S(S, prmt);
     std::set<int> bar_S = get_bar_S(S, prmt);
     std::set<int> sigma_S = get_sigma_S(S, prmt);
     /*
      * \sum_{ i, j \in \delta(S)} x_{i, j}
      */
-    for (arc a: delta_S) {
+    for (edge a: delta_S) {
         *lhs += x_ij[a.first][a.second];
     }
     /*
@@ -64,13 +65,13 @@ template<typename T1, typename T2>
 void get_SEC2_LHS(T1 *lhs, T2 **x_ij,
                   const std::set<int> &S,
                   const Problem &prmt) {
-    std::set<arc> delta_S = get_delta_S(S, prmt);
+    std::set<edge> delta_S = get_delta_S(S, prmt);
     std::set<int> bar_S = get_bar_S(S, prmt);
     std::set<int> pi_S = get_pi_S(S, prmt);
     /*
      * \sum_{ i, j \in \delta(S)} x_{i, j}
      */
-    for (arc a: delta_S) {
+    for (edge a: delta_S) {
         *lhs += x_ij[a.first][a.second];
     }
     /*
@@ -98,8 +99,69 @@ void get_SEC2_LHS(T1 *lhs, T2 **x_ij,
 }
 
 
-std::vector<std::set<int>> get_SEC(int SEC_no, double **_x_ij, const Problem &prmt);
+std::set<std::set<int>> get_SEC(int SEC_no,
+                                   const std::set<std::set<int>> &ES_SEC,
+                                   double **_x_ij, const Problem &prmt);
 
+
+
+class cut_handler {
+public:
+    std::string ch_name;
+    Problem *prob;
+    //
+    cut_handler(std::string ch_name, Problem *prob){
+        this->ch_name = ch_name;
+        this->prob = prob;
+    }
+    //
+    void indentify_violatedConstrains(double **x_ij) {
+        throw "Should override indentify_violatedConstrains()";
+    }
+    void generate_cuts() {
+        throw "Should override generate_cuts()";
+    }
+};
+
+
+class SubtourEliminationCut_heuristic : public cut_handler {
+public:
+    std::set<std::set<int>> existing_sets;
+    std::set<std::set<int>> new_sets;
+    //
+    SubtourEliminationCut_heuristic(std::string ch_name, Problem *prob): cut_handler(ch_name, prob) {}
+    //
+    void indentify_violatedConstrains(double **x_ij);
+private:
+    void find_new_nid_wMinLHS_wAddition(double **x_ij, const std::set<int> &S0,
+                                        std::set<std::set<int>> &tabu_S,
+                                        std::set<int> &tabu_N,
+                                        int *min_nid, double *min_lhs);
+    void find_included_nid_wMinLHS_wDeletion(double **x_ij, const std::set<int> &S0,
+                                             std::set<std::set<int>> &tabu_S,
+                                             std::set<int> &tabu_N,
+                                             int *min_nid, double *min_lhs);
+protected:
+    double get_LHS_givenS(double **x_ij, const std::set<int> &S) {
+        throw "Should override get_LHS_givenS()";
+    }
+};
+
+class SE1_cut : public SubtourEliminationCut_heuristic {
+public:
+    //
+    SE1_cut(std::string ch_name, Problem *prob) : SubtourEliminationCut_heuristic(ch_name, prob) {}
+private:
+    double get_LHS_givenS(double **x_ij, const std::set<int> &S);
+};
+
+class SE2_cut : public SubtourEliminationCut_heuristic {
+public:
+    //
+    SE2_cut(std::string ch_name, Problem *prob) : SubtourEliminationCut_heuristic(ch_name, prob) {}
+private:
+    double get_LHS_givenS(double **x_ij, const std::set<int> &S);
+};
 
 
 #endif /* Cut_hpp */

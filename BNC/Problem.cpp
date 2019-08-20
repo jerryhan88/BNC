@@ -128,7 +128,9 @@ Problem::Problem(int numTasks,
         }
     }
     M = N.size() * N.size() * max_dist;
-    //
+    if (M < 1.0) {
+        M = 1.0;
+    }
     this->bv = bv; this->bw = bw; this->bu = bu;
 }
 

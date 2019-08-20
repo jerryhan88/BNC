@@ -49,7 +49,7 @@ FilePathOrganizer::FilePathOrganizer(std::string logPath, std::string solPathCSV
 
 void FilePathOrganizer::initLogFile() {
     char header[BUF_SIZE];
-    sprintf(header, "nid,numIter,upperBound,SEC1,SEC2");
+    sprintf(header, "nid,numIter,upperBound,SEC1,SEC2,note");
     createCSV(logPath, header);
 }
 

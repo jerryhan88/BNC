@@ -10,13 +10,36 @@
 #define Tree_hpp
 
 #include <stdio.h>
-#include <string>
+#include <queue>
+#include "../Problem.hpp"
+#include "../Etc.hpp"
+#include "Node.hpp"
 
 
 class Tree {
 public:
-    Tree();
+    FilePathOrganizer *fpo;
+    Problem *prob;
+    //
+    std::priority_queue<Node *, std::vector<Node *>,
+    auto(*) (Node *, Node *) -> bool > pq{
+                                            [](Node *left, Node *right) -> bool {
+                                                if ((*left).upperBound > (*right).upperBound) {
+                                                    return true;
+                                                } else {
+                                                    return false;
+                                                }
+                                            }
+                                        };
+    std::vector<Node *> handledNodes;
+    Node *incumbent = NULL;
+    //
+    Tree(Problem *, FilePathOrganizer *);
     ~Tree();
+    //
+    void run_BnB();
+private:
+    bool branching();
 };
 
 

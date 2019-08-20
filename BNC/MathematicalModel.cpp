@@ -8,7 +8,7 @@
 
 #include "MathematicalModel.hpp"
 
-#define DEFAULT_BUFFER_SIZE 128
+#define DEFAULT_BUFFER_SIZE 1024
 
 
 
@@ -20,7 +20,7 @@ MathematicalModel::MathematicalModel(char xType, Problem *prob) {
         x_ij[i] = new GRBVar[(*prob).N.size()];
     }
     u_i = new GRBVar[(*prob).N.size()];
-    env = new GRBEnv();
+    env = new GRBEnv("");
     grbModel = new GRBModel(*env);
     def_dvs(xType);
     def_FC_cnsts();
@@ -28,6 +28,39 @@ MathematicalModel::MathematicalModel(char xType, Problem *prob) {
     def_CP_cnsts();
     def_objF();
 }
+
+MathematicalModel* MathematicalModel::clone() {
+    char buf[DEFAULT_BUFFER_SIZE];
+    MathematicalModel *mm = new MathematicalModel();
+    mm->prob = prob;
+    (*grbModel).update();
+    mm->grbModel = new GRBModel(*grbModel);
+    mm->x_ij = new GRBVar *[(*prob).N.size()];
+    mm->u_i = new GRBVar[(*prob).N.size()];
+    for (int i: (*prob).N) {
+        mm->x_ij[i] = new GRBVar[(*prob).N.size()];
+        for (int j: (*prob).N) {
+            sprintf(buf, "x[%d][%d]", i, j);
+            mm->x_ij[i][j] = (*(*mm).grbModel).getVarByName(buf);
+        }
+        sprintf(buf, "u[%d]", i);
+        mm->u_i[i] = (*(*mm).grbModel).getVarByName(buf);
+    }
+    return mm;
+}
+
+void MathematicalModel::add_intConstr(int i, int j, int rhs) {
+    char buf[DEFAULT_BUFFER_SIZE];
+    sprintf(buf, "intConst[%d][%d]", i, j);
+    if (rhs == 0) {
+        (*grbModel).addConstr(x_ij[i][j] <= rhs, buf);
+    } else {
+        assert(rhs == 1);
+        (*grbModel).addConstr(x_ij[i][j] >= rhs, buf);
+    }
+    (*grbModel).update();
+}
+
 
 void MathematicalModel::def_dvs(char modType){
     char buf[DEFAULT_BUFFER_SIZE];
@@ -210,16 +243,8 @@ void MathematicalModel::def_objF() {
     (*grbModel).setObjective(objF, GRB_MAXIMIZE);
 }
 
-MathematicalModel::~MathematicalModel() {
-    for (int i = 0; i < (*prob).N.size(); i++)
-        delete [] x_ij[i];
-    delete [] x_ij;
-    delete [] u_i;
-    delete grbModel;
-    delete env;
-}
-
-void MathematicalModel::add_SEC(std::vector<std::set<int>> SEC, int SEC_no) {
+void MathematicalModel::add_SEC(std::set<std::set<int>> SEC, int SEC_no,
+                                std::string nid, int numIter) {
     char buf[DEFAULT_BUFFER_SIZE];
     int SEC_counter = 0;
     for (std::set<int> S: SEC) {
@@ -230,7 +255,8 @@ void MathematicalModel::add_SEC(std::vector<std::set<int>> SEC, int SEC_no) {
             assert(SEC_no == 2);
             get_SEC2_LHS(&lhs, x_ij, S, *prob);
         }
-        sprintf(buf, "SEC%d[%d]", SEC_no, SEC_counter);
+        sprintf(buf, "SEC%d[%d][%s][%d]", SEC_no, SEC_counter,
+                    nid.c_str(), numIter);
         (*grbModel).addConstr(lhs >= 2, buf);
         SEC_counter += 1;
     }
@@ -242,4 +268,12 @@ void MathematicalModel::get_x_ij(double **_x_ij) {
             _x_ij[i][j] = x_ij[i][j].get(GRB_DoubleAttr_X);
         }
     }
+}
+
+MathematicalModel::~MathematicalModel() {
+    for (int i = 0; i < (*prob).N.size(); i++)
+        delete [] x_ij[i];
+    delete [] x_ij;
+    delete [] u_i;
+    delete grbModel;
 }

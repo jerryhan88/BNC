@@ -21,11 +21,16 @@ public:
     GRBEnv *env;
     GRBVar **x_ij, *u_i;
     GRBModel *grbModel;
-    
+    //
     MathematicalModel(char, Problem *);
+    MathematicalModel(){};
     ~MathematicalModel();
-    void add_SEC(std::vector<std::set<int>> SEC, int SEC_no);
+    //
+    void add_SEC(std::set<std::set<int>> SEC, int SEC_no,
+                 std::string nid, int numIter);
     void get_x_ij(double **);
+    MathematicalModel* clone();
+    void add_intConstr(int i, int j, int rhs);
 private:
     void def_dvs(char);
     void def_FC_cnsts();
