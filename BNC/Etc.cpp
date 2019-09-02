@@ -19,12 +19,14 @@ void createCSV(std::string fpath, char *header) {
     std::fstream fout;
     fout.open(fpath, std::ios::out);
     fout << header << "\n";
+    fout.close();
 }
 
 void appendRow(std::string fpath, char *row) {
     std::fstream fout;
     fout.open(fpath, std::ios::out | std::ios::app);
     fout << row << "\n";
+    fout.close();
 }
 
 void appendRows(std::string fpath, char **rows, int numRows) {
@@ -32,6 +34,7 @@ void appendRows(std::string fpath, char **rows, int numRows) {
     fout.open(fpath, std::ios::out | std::ios::app);
     for (int i = 0; i < numRows; i++)
         fout << rows[i] << "\n";
+    fout.close();
 }
 
 FilePathOrganizer::FilePathOrganizer(const char * argv[]) {
@@ -47,9 +50,33 @@ FilePathOrganizer::FilePathOrganizer(std::string logPath, std::string solPathCSV
     this->solPathTXT = solPathTXT;
 }
 
+FilePathOrganizer::FilePathOrganizer(const fs::path &appr_dpath, const std::string &postfix) {
+    std::string appr_name = appr_dpath.leaf().string();
+    //
+    fs::path logPath(appr_dpath);
+    logPath.append(appr_name + "_" + postfix + ".log");
+    this->logPath = logPath.string();
+    //
+    fs::path solPathCSV(appr_dpath);
+    solPathCSV.append(appr_name + "_" + postfix + ".csv");
+    this->solPathCSV = solPathCSV.string();
+    //
+    fs::path solPathTXT(appr_dpath);
+    solPathTXT.append(appr_name + "_" + postfix + ".txt");
+    this->solPathTXT = solPathTXT.string();
+    //
+    fs::path lpPath(appr_dpath);
+    lpPath.append(appr_name + "_" + postfix + ".lp");
+    this->lpPath = lpPath.string();
+    //
+    fs::path ilpPath(appr_dpath);
+    ilpPath.append(appr_name + "_" + postfix + ".ilp");
+    this->ilpPath = ilpPath.string();
+}
+
 void FilePathOrganizer::initLogFile() {
     char header[BUF_SIZE];
-    sprintf(header, "nid,numIter,upperBound,SEC1,SEC2,note");
+    sprintf(header, "nid,numIter,upperBound,SEC0,SEC1,SEC2,note");
     createCSV(logPath, header);
 }
 
@@ -57,22 +84,13 @@ void FilePathOrganizer::appendLog(char *row) {
     appendRow(logPath, row);
 }
 
-//void csvExample(const PathOrganizer &po) {
-//    char header[BUF_SIZE];
-//    sprintf(header, "c%d,c%d,c%d,c%d", 1, 2, 3, 4);
-//
-//    createCSV(po.solPathCSV, header);
-//    char row[BUF_SIZE];
-//    sprintf(row, "1, 2, 3, 4");
-//    appendRow(po.solPathCSV, row);
-//    char *rows[5];
-//    for (int i = 0; i < 5; i++) {
-//        rows[i] = row;
-//    }
-//    appendRows(po.solPathCSV, rows, 5);
-//}
 
+double TimeTracker::get_elipsedTimeCPU() {
+    std::clock_t c_end = std::clock();
+    return (c_end-c_start) / (double) CLOCKS_PER_SEC;
+}
 
-FilePathOrganizer::~FilePathOrganizer() {
-    
+double TimeTracker::get_elipsedTimeWall() {
+    std::chrono::high_resolution_clock::time_point w_end = std::chrono::high_resolution_clock::now();
+    return std::chrono::duration<double, std::milli>(w_end-w_start).count() / 1000.0;
 }

@@ -11,15 +11,17 @@
 
 #include <stdio.h>
 #include <queue>
+#include <string>
 #include "../Problem.hpp"
 #include "../Etc.hpp"
+#include "../MathematicalModel.hpp"
 #include "Node.hpp"
 
 
 class Tree {
 public:
-    FilePathOrganizer *fpo;
     Problem *prob;
+    FilePathOrganizer *fpo;
     //
     std::priority_queue<Node *, std::vector<Node *>,
     auto(*) (Node *, Node *) -> bool > pq{
@@ -37,13 +39,48 @@ public:
     Tree(Problem *, FilePathOrganizer *);
     ~Tree();
     //
+    MathematicalModel* get_incumbentMM();
+    void log_simpleNote(Node *n, std::string note);
     void run_BnB();
 private:
     bool branching();
 };
 
 
+/*
+ Priority queue example
+ 
+ template<typename T> void print_queue(T& q) {
+ while(!q.empty()) {
+ std::cout << q.top() << " ";
+ q.pop();
+ }
+ std::cout << '\n';
+ }
+ 
+ std::priority_queue<int> q;
+ 
+ for(int n : {1,8,5,6,3,4,0,9,7,2})
+ q.push(n);
+ 
+ print_queue(q);
+ 
+ std::priority_queue<int, std::vector<int>, std::greater<int> > q2;
+ 
+ for(int n : {1,8,5,6,3,4,0,9,7,2})
+ q2.push(n);
+ 
+ print_queue(q2);
+ 
+ // Using lambda to compare elements.
+ auto cmp = [](int left, int right) { return left > right;};
+ std::priority_queue<int, std::vector<int>, decltype(cmp)> q3(cmp);
+ 
+ for(int n : {1,8,5,6,3,4,0,9,7,2})
+ q3.push(n);
+ 
+ print_queue(q3);
+ */
+
 
 #endif /* Tree_hpp */
-
-

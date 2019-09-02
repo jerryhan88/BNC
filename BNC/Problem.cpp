@@ -8,6 +8,7 @@
 
 #include "Problem.hpp"
 
+#define DEFAULT_REWARD 1.0
 #define DEFAULT_VOLUME 1.0
 #define DEFAULT_WEIGHT 1.0
 #define DEAULT_TW_BEGIN 0.0
@@ -26,7 +27,7 @@ Problem gen_problemInstance(int numTasks, int num_rrPoints, int maxReward,
     
     double reward[numTasks], volume[numTasks], weight[numTasks];
     for (int k = 0; k < numTasks; k++) {
-        reward[k] = (int) (get_random_number() * maxReward);
+        reward[k] = DEFAULT_REWARD;
         volume[k] = DEFAULT_VOLUME;
         weight[k] = DEFAULT_WEIGHT;
     }
@@ -36,20 +37,19 @@ Problem gen_problemInstance(int numTasks, int num_rrPoints, int maxReward,
         X[i] = get_random_number();
         Y[i] = get_random_number();
     }
-    double *distance[numNodes];
+    double **distance = new double*[numNodes];
     for (int i = 0; i < numNodes; i++) {
-        double row [numNodes];
+        distance[i] = new double[numNodes];
         for (int j = 0; j < numNodes; j++) {
-            row[j] = get_euclideanDistance(i, j, X, Y);
+//            distance[i][j] = get_euclideanDistance(i, j, X, Y);
+            distance[i][j] = i != j ? 0.01 : 0.00;
         }
-        distance[i] = row;
     }
-    double *timeWindow[numNodes];
+    double **timeWindow = new double*[numNodes];
     for (int i = 0; i < numNodes; i++) {
-        double tw[2];
-        tw[0] = DEAULT_TW_BEGIN;
-        tw[1] = DEAULT_TW_END;
-        timeWindow[i] = tw;
+        timeWindow[i] = new double[2];
+        timeWindow[i][0] = DEAULT_TW_BEGIN;
+        timeWindow[i][1] = DEAULT_TW_END;
     }
     //
     Problem pi(numTasks,
@@ -57,6 +57,13 @@ Problem gen_problemInstance(int numTasks, int num_rrPoints, int maxReward,
                  numNodes,
                     distance, timeWindow,
                  bv, bw, bu);
+    
+    for (int i = 0; i < numNodes; i++) {
+        delete [] distance[i];
+        delete [] timeWindow[i];
+    }
+    delete [] distance;
+    delete [] timeWindow;
     //
     return pi;
 }
@@ -118,7 +125,7 @@ Problem::Problem(int numTasks,
     }
     c_ij = new int*[N.size()];
     for (int i = 0; i < N.size(); i++)
-        c_ij[i] = new int[N.size()]();
+        c_ij[i] = new int[N.size()];
     for (int i = 0; i < S.size(); i++) {
         for (int j = 0; j < S.size(); j++) {
             if (j < i)
@@ -155,3 +162,59 @@ Problem::~Problem() {
     P.clear(); D.clear();
 }
 
+
+void Problem::write_json(std::string ofpath) {
+    nlohmann::json prob_json;
+    //
+    prob_json["bv"] = bv;
+    prob_json["bw"] = bw;
+    prob_json["bu"] = bu;
+    //
+    prob_json["K"] = nlohmann::json (K);
+    prob_json["PD"] = nlohmann::json (PD);
+    prob_json["S"] = nlohmann::json (S);
+    prob_json["N"] = nlohmann::json (N);
+    prob_json["P"] = nlohmann::json (P);
+    prob_json["D"] = nlohmann::json (D);
+    prob_json["o"] = o;
+    prob_json["d"] = d;
+    std::vector<int> _r_k(K.size()), _v_k(K.size()), _w_k(K.size()), _h_k(K.size()), _n_k(K.size());
+    for (int k: K) {
+        _r_k[k] = r_k[k];
+        _v_k[k] = v_k[k];
+        _w_k[k] = w_k[k];
+        _h_k[k] = h_k[k];
+        _n_k[k] = n_k[k];
+    }
+    prob_json["r_k"] = nlohmann::json (_r_k);
+    prob_json["v_k"] = nlohmann::json (_v_k);
+    prob_json["w_k"] = nlohmann::json (_w_k);
+    prob_json["h_k"] = nlohmann::json (_h_k);
+    prob_json["n_k"] = nlohmann::json (_n_k);
+    //
+    std::vector<double> _al_i(N.size()), _be_i(N.size());
+    std::vector<std::vector<double>> _t_ij(N.size());
+    std::vector<std::vector<int>> _c_ij(N.size());
+    for (int i: N) {
+        _al_i[i] = al_i[i];
+        _be_i[i] = be_i[i];
+        std::vector<double> _t_i(N.size());
+        std::vector<int> _c_i(N.size());
+        for (int j: N) {
+            _t_i[j] = t_ij[i][j];
+            _c_i[j] = c_ij[i][j];
+        }
+        _t_ij[i] = _t_i;
+        _c_ij[i] = _c_i;
+    }
+    prob_json["al_i"] = nlohmann::json (_al_i);
+    prob_json["be_i"] = nlohmann::json (_be_i);
+    prob_json["t_ij"] = nlohmann::json (_t_ij);
+    prob_json["c_ij"] = nlohmann::json (_c_ij);
+    //
+    prob_json["M"] = M;
+    
+    std::ofstream os(ofpath);
+    os << prob_json <<std::endl;
+    
+}

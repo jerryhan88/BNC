@@ -15,6 +15,14 @@ Tree::Tree(Problem *prob, FilePathOrganizer *fpo) {
     this->fpo = fpo;
 }
 
+Tree::~Tree() {
+}
+
+MathematicalModel* Tree::get_incumbentMM() {
+    assert(incumbent != NULL);
+    return incumbent->mm;
+}
+
 void Tree::run_BnB() {
     Node *root = new Node("*", prob, fpo);
     (*root).calc_bound();
@@ -27,8 +35,8 @@ void Tree::run_BnB() {
     }
 }
 
+
 bool Tree::branching() {
-    char buf[DEFAULT_BUFFER_SIZE];
     Node *n0 = NULL;
     if (!pq.empty()) {
         n0 = pq.top();
@@ -41,55 +49,62 @@ bool Tree::branching() {
     if ((*n0).isIntegral) {
         if (incumbent == NULL) {
             incumbent = n0;
-            sprintf(buf, "%s,-,%f,-,-,firstIncumbent",
-                    (*incumbent).nid.c_str(), (*incumbent).upperBound);
-            (*fpo).appendLog(buf);
+            log_simpleNote(incumbent, "firstIncumbent");
         } else {
             if ( (*incumbent).upperBound < (*n0).upperBound ) {
                 delete incumbent;
                 incumbent = n0;
-                sprintf(buf, "%s,-,%f,-,-,updatedIncumbent",
-                        (*incumbent).nid.c_str(), (*incumbent).upperBound);
-                (*fpo).appendLog(buf);
+                log_simpleNote(incumbent, "updatedIncumbent");
             }
         }
     } else {
-//        if ((*n0).nid == "*1101001111000001")
+//        if ((*n0).nid == "*10")
 //            printf("TEST");
         (*n0).search_mostFractionalVarIndex();
-        sprintf(buf, "%s,-,-,-,-,branch(%d-%d)",
-                (*n0).nid.c_str(), n0->mf_i, n0->mf_j);
-        (*fpo).appendLog(buf);
+        log_simpleNote(n0, "branch(" + std::to_string(n0->mf_i) + "-" + std::to_string(n0->mf_j) + ")");
 
         for (int rhs = 0; rhs < 2; rhs++) {
             Node *n1 = (*n0).clone(n0->nid + std::to_string(rhs));
+//            if ((*n1).nid == "*11")
+//                printf("TEST");
             n1->mm->add_intConstr(n0->mf_i, n0->mf_j, rhs);
             modelState = (*n1).calc_bound();
+//            if (modelState == INFEASIBLE_MODEL) {
+//                n1->mm->grbModel->computeIIS();
+//                n1->mm->grbModel->write("/Users/ckhan/workspace/BNC/BNC/temp.ilp");
+//            }
+            
             if (modelState != INFEASIBLE_MODEL) {
                 if (incumbent != NULL && (*n1).upperBound <= (*incumbent).upperBound) {
-                    sprintf(buf, "%s,-,-,-,-,pruned",
-                             (*n1).nid.c_str());
-                    (*fpo).appendLog(buf);
+                    log_simpleNote(n1, "pruned");
                     return false;
                 } else {
                     pq.push(n1);
-                    sprintf(buf, "%s,-,-,-,-,pushedPQ",
-                            (*n1).nid.c_str());
-                    (*fpo).appendLog(buf);
+                    log_simpleNote(n1, "pushedPQ");
                 }
             } else {
-                sprintf(buf, "%s,-,-,-,-,infeasible",
-                        (*n1).nid.c_str());
-                (*fpo).appendLog(buf);
+                log_simpleNote(n1, "infeasible");
             }
         }
         if ((*n0).nid != "*")
             delete n0;
-        printf("test");
     }
     return false;
 }
 
-Tree::~Tree() {
-    
+void Tree::log_simpleNote(Node *n, std::string note) {
+    std::string _row;
+    _row += (*n).nid;
+    _row += ",-";
+    if ((*n).upperBound != -1) {
+        _row += "," + std::to_string((*n).upperBound);
+    } else {
+        _row += ",-";
+    }
+    for (int i = 0; i < n->cc->chs.size(); i++)
+        _row += ",-";
+    _row += "," + note;
+    char buf[_row. size() + 1];
+    std::strcpy(buf, _row.c_str());
+    appendRow(fpo->logPath, buf);
 }

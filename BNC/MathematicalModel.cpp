@@ -8,10 +8,6 @@
 
 #include "MathematicalModel.hpp"
 
-#define DEFAULT_BUFFER_SIZE 1024
-
-
-
 
 MathematicalModel::MathematicalModel(char xType, Problem *prob) {
     this->prob = prob;
@@ -27,6 +23,7 @@ MathematicalModel::MathematicalModel(char xType, Problem *prob) {
     def_AT_cnsts();
     def_CP_cnsts();
     def_objF();
+    grbModel->set(GRB_IntParam_LogToConsole, 0);
 }
 
 MathematicalModel* MathematicalModel::clone() {
@@ -61,7 +58,6 @@ void MathematicalModel::add_intConstr(int i, int j, int rhs) {
     (*grbModel).update();
 }
 
-
 void MathematicalModel::def_dvs(char modType){
     char buf[DEFAULT_BUFFER_SIZE];
     bool isIntegerModel = modType == 'I' ? true : false;
@@ -85,6 +81,12 @@ void MathematicalModel::def_FC_cnsts() {
     /*
      *  \sum_{ j \in N } x_{j, o} = \sum_{ j \in N } x_{d, j} = 0 \label{eq:xF}
      */
+    linExpr = 0;
+    sprintf(buf, "xF0");
+    for (int i: (*prob).N) {
+        linExpr += x_ij[i][i];
+    }
+    (*grbModel).addConstr(linExpr == 0, buf);
     linExpr = 0;
     sprintf(buf, "xF1");
     for (int j: (*prob).N) {
@@ -113,7 +115,7 @@ void MathematicalModel::def_FC_cnsts() {
     }
     (*grbModel).addConstr(linExpr == 1, buf);
     /*
-     *  \sum_{ j \in N } x_{i, j} = \sum_{ j \in N } x_{j, i} = 1, \forall i \in S \setminus \{ o, d \} \label{eq:iFS}
+     *  \sum_{ i \neq j \in N } x_{i, j} = \sum_{ i \neq j \in N } x_{j, i} = 1, \forall i \in S \setminus \{ o, d \} \label{eq:iFS}
      */
     for (int i: (*prob).S) {
         if (i == (*prob).o || i == (*prob).d)
@@ -121,12 +123,16 @@ void MathematicalModel::def_FC_cnsts() {
         linExpr = 0;
         sprintf(buf, "iFS1[%d]", i);
         for (int j: (*prob).N) {
+            if (i == j)
+                continue;
             linExpr += x_ij[i][j];
         }
         (*grbModel).addConstr(linExpr == 1, buf);
         linExpr = 0;
         sprintf(buf, "iFS2[%d]", i);
         for (int j: (*prob).N) {
+            if (i == j)
+                continue;
             linExpr += x_ij[j] [i];
         }
         (*grbModel).addConstr(linExpr == 1, buf);
@@ -150,13 +156,15 @@ void MathematicalModel::def_FC_cnsts() {
      */
     for (int i: (*prob).PD) {
         linExpr = 0;
-        sprintf(buf, "FC[%d]", i);
         for (int j: (*prob).N) {
             linExpr += x_ij[i][j];
         }
+        sprintf(buf, "FC_1[%d]", i);
+        (*grbModel).addConstr(linExpr <= 1, buf);
         for (int j: (*prob).N) {
             linExpr -= x_ij[j][i];
         }
+        sprintf(buf, "FC[%d]", i);
         (*grbModel).addConstr(linExpr == 0, buf);
     }
 }
@@ -243,30 +251,17 @@ void MathematicalModel::def_objF() {
     (*grbModel).setObjective(objF, GRB_MAXIMIZE);
 }
 
-void MathematicalModel::add_SEC(std::set<std::set<int>> SEC, int SEC_no,
-                                std::string nid, int numIter) {
-    char buf[DEFAULT_BUFFER_SIZE];
-    int SEC_counter = 0;
-    for (std::set<int> S: SEC) {
-        GRBLinExpr lhs = 0.0;
-        if (SEC_no == 1) {
-            get_SEC1_LHS(&lhs, x_ij, S, *prob);
-        } else {
-            assert(SEC_no == 2);
-            get_SEC2_LHS(&lhs, x_ij, S, *prob);
-        }
-        sprintf(buf, "SEC%d[%d][%s][%d]", SEC_no, SEC_counter,
-                    nid.c_str(), numIter);
-        (*grbModel).addConstr(lhs >= 2, buf);
-        SEC_counter += 1;
-    }
-}
-
 void MathematicalModel::get_x_ij(double **_x_ij) {
     for (int i: (*prob).N) {
         for (int j: (*prob).N) {
             _x_ij[i][j] = x_ij[i][j].get(GRB_DoubleAttr_X);
         }
+    }
+}
+
+void MathematicalModel::get_u_i(double *_u_i) {
+    for (int i: (*prob).N) {
+        _u_i[i] = u_i[i].get(GRB_DoubleAttr_X);
     }
 }
 
@@ -276,4 +271,53 @@ MathematicalModel::~MathematicalModel() {
     delete [] x_ij;
     delete [] u_i;
     delete grbModel;
+}
+
+void subtourelim::callback() {
+    try {
+        if (where == GRB_CB_MIP) {
+            // General MIP callback
+            double nodecnt = getDoubleInfo(GRB_CB_MIP_NODCNT);
+            double objbst = getDoubleInfo(GRB_CB_MIP_OBJBST);
+            double objbnd = getDoubleInfo(GRB_CB_MIP_OBJBND);
+            int cutcnt = getIntInfo(GRB_CB_MIP_CUTCNT);
+            int solcnt = getIntInfo(GRB_CB_MIP_SOLCNT);
+//            if (nodecnt - lastnode >= 100) {
+//                lastnode = nodecnt;
+//                int actnodes = (int) getDoubleInfo(GRB_CB_MIP_NODLFT);
+//                int itcnt = (int) getDoubleInfo(GRB_CB_MIP_ITRCNT);
+//                int cutcnt = getIntInfo(GRB_CB_MIP_CUTCNT);
+//                cout << nodecnt << " " << actnodes << " " << itcnt
+//                << " " << objbst << " " << objbnd << " "
+//                << solcnt << " " << cutcnt << endl;
+            }
+        if (where == GRB_CB_MIPNODE) {
+            // Found an integer feasible solution - does it visit every node?
+            double **x = new double*[n];
+            int *tour = new int[n];
+            int i, j, len;
+            for (i = 0; i < n; i++)
+                x[i] = getSolution(vars[i], n);
+            
+            //                findsubtour(n, x, &len, tour);
+            if (len < n) {
+                // Add subtour elimination constraint
+                GRBLinExpr expr = 0;
+                for (i = 0; i < len; i++)
+                    for (j = i+1; j < len; j++)
+                        expr += vars[tour[i]][tour[j]];
+                addLazy(expr <= len-1);
+            }
+            
+            for (i = 0; i < n; i++)
+                delete[] x[i];
+            delete[] x;
+            delete[] tour;
+        }
+    } catch (GRBException e) {
+        //            cout << "Error number: " << e.getErrorCode() << endl;
+        //            cout << e.getMessage() << endl;
+    } catch (...) {
+        //            cout << "Error during callback" << endl;
+    }
 }

@@ -29,8 +29,10 @@ public:
     void add_SEC(std::set<std::set<int>> SEC, int SEC_no,
                  std::string nid, int numIter);
     void get_x_ij(double **);
+    void get_u_i(double *);
     MathematicalModel* clone();
     void add_intConstr(int i, int j, int rhs);
+    void write_solution();
 private:
     void def_dvs(char);
     void def_FC_cnsts();
@@ -39,5 +41,17 @@ private:
     void def_objF();
 };
 
+class subtourelim: public GRBCallback
+{
+public:
+    GRBVar** vars;
+    int n;
+    subtourelim(GRBVar** xvars, int xn) {
+        vars = xvars;
+        n    = xn;
+    }
+protected:
+    void callback();
+};
 
 #endif /* MathematicalModel_hpp */

@@ -8,9 +8,6 @@
 
 #include "Cut.hpp"
 
-#define NUM_ITER 25
-#define MIN_CAR_SUBSET 3
-#define PROBABILITY_ADD_NODE 0.5
 
 std::set<edge> get_delta_S(const std::set<int> &S, const Problem &prmt) {
     std::set<edge> delta_S_P;
@@ -67,331 +64,157 @@ std::set<int> get_bar_S(const std::set<int> &S, const Problem &prmt) {
     return bar_S;
 }
 
-void get_SEC_aS(int SEC_no,
-                const std::set<std::set<int>> &tabu_S,
-                const std::set<int> &tabu_N,
-                const std::set<int> &S0,
-                int *min_i, double *min_lhs,
-                double **x_ij, const Problem &prmt) {
-    // Get a new subset by adding a new node
-    for(int i: prmt.PD) {
-        if(tabu_N.find(i) != tabu_N.end())
+void SE0_cut::indentify_violatedConstrains(double **x_ij) {
+    int V = (int) prob->N.size();
+    double **rGraph = gen_graphInstance(x_ij, V);
+    int parent[V];
+    double max_flow;
+    //
+    bool isFirst = true;
+    for (int i: prob->S) {
+        if (i == prob->o || i == prob->d)
             continue;
-        if (S0.find(i) != S0.end())
-            continue;
-        std::set<int> S1(S0);
-        S1.insert(i);
-        if (tabu_S.find(S1) != tabu_S.end())
-            continue;
-        double lhs = 0.0;
-        if (SEC_no == 1) {
-            get_SEC1_LHS(&lhs, x_ij, S1, prmt);
-        } else{
-            assert(SEC_no == 2);
-            get_SEC2_LHS(&lhs, x_ij, S1, prmt);
+        for (int j: prob->S) {
+            if (j == prob->o || j == prob->d)
+                continue;
+            if (i == j)
+                continue;
+            if (!isFirst) {
+                for (int i = 0; i < V; i++) {
+                    for (int j = 0; j < V; j++) {
+                        rGraph[i][j] = x_ij[i][j];
+                    }
+                }
+            } else {
+                isFirst = false;
+            }
+            for (int i = 0; i < V; i++) {
+                parent[i] = -1;
+            }
+            max_flow = 0.0;
+            //
+            sendMaxFlow(rGraph, V, i, j, parent, &max_flow);
+            bool visited[V];
+            std::memset(visited, false, sizeof(visited));
+            reachability_dfs(rGraph, V, i, visited);
+            std::set<int> S1;
+            for (int i = 0; i < V; i++) {
+                if(visited[i]) {
+                    S1.insert(i);
+                }
+            }
+            if (S1.size() <= 2)
+                continue;
+            if (existing_sets.find(S1) == existing_sets.end()) {
+                new_sets.insert(S1);
+            }
         }
-        if (lhs < *min_lhs) {
-            *min_lhs = lhs;
-            *min_i = i;
-        }
-        S1.clear();
     }
+    for (int i = 0; i < V; i++) {
+        delete [] rGraph[i];
+    }
+    delete [] rGraph;
 }
 
-void get_SEC_dS(int SEC_no,
-                const std::set<std::set<int>> &tabu_S,
-                const std::set<int> &tabu_N,
-                const std::set<int> &S0,
-                int *min_i, double *min_lhs,
-                double **x_ij, const Problem &prmt) {
-    // Get a new subset by removing the existing node
-    for(int i: S0) {
-        std::set<int> S1(S0);
-        S1.erase(i);
-        if (tabu_S.find(S1) != tabu_S.end())
-            continue;
-        double lhs = 0.0;
-        if (SEC_no == 1) {
-            get_SEC1_LHS(&lhs, x_ij, S1, prmt);
-        } else{
-            assert(SEC_no == 2);
-            get_SEC2_LHS(&lhs, x_ij, S1, prmt);
+void SE0_cut::add_cuts(GRBModel *grbModel, GRBVar **x_ij) {
+    char buf[DEFAULT_BUFFER_SIZE];
+    for (std::set<int> S: new_sets) {
+        GRBLinExpr lhs = 0.0;
+        for (int i: S) {
+            for (int j: S) {
+                lhs += x_ij[i][j];
+            }
         }
-        if (lhs < *min_lhs) {
-            *min_lhs = lhs;
-            *min_i = i;
-        }
-        S1.clear();
+//        std::set<edge> delta_S = get_delta_S(S, *prob);
+//        for (edge a: delta_S) {
+//            lhs += x_ij[a.first][a.second];
+//        }
+        num_generatedCuts += 1;
+        sprintf(buf, "%s[%d]", ch_name.c_str(), num_generatedCuts);
+//        grbModel->addConstr(lhs >= 2, buf);
+        
+        grbModel->addConstr(lhs <= (int) S.size() - 2, buf);
     }
+    grbModel->update();
+    existing_sets.insert(new_sets.begin(), new_sets.end());
+    new_sets.clear();
 }
 
-std::set<std::set<int>> get_SEC(int SEC_no,
-                                   const std::set<std::set<int>> &ES_SEC,
-                                   double **_x_ij, const Problem &prmt) {
-    /*
-     * Valid subtour elimination constraint 1 (SEC_no = 1)
-     *  \sum_{ i, j \in S} x_{i, j}
-     *   + \sum_{i \in \bar{S} \cap \sigma(S)} \sum_{j \in S} x_{i, j}
-     *   + \sum_{i \in \bar{S} \setminus \sigma(S)} \sum_{j \in S \cap \sigma(S)} x_{i, j}
-     *  <= |S| - 1
-     *
-     * Seperation inequality; 2 * x(\bar{S}) + x(\delta(S)) = 2|S|
-     *  \sum_{ i, j \in \delta(S)} x_{i, j}
-     *   - 2 * \sum_{i \in \bar{S} \cap \sigma(S)} \sum_{j \in S} x_{i, j}
-     *   - 2 * \sum_{i \in \bar{S} \setminus \sigma(S)} \sum_{j \in S \cap \sigma(S)} x_{i, j}
-     *  < 2
-     *
-     * Valid subtour elimination constraint 2 (SEC_no = 2)
-     *  \sum_{ i, j \in S} x_{i, j}
-     *   + \sum_{i \in S} \sum_{j \in \bar{S} \cap \pi(S)} x_{i, j}
-     *   + \sum_{i \in S \cap \pi(S)} \sum_{j \in \bar{S} \setminus \pi(S)} x_{i, j}
-     *  <= |S| - 1
-     *
-     * Seperation inequality; 2 * x(\bar{S}) + x(\delta(S)) = 2|S|
-     *  \sum_{ i, j \in \delta(S)} x_{i, j}
-     *   - 2 * \sum_{i \in S} \sum_{j \in \bar{S} \cap \pi(S)} x_{i, j}
-     *   - 2 * \sum_{i \in S \cap \pi(S)} \sum_{j \in \bar{S} \setminus \pi(S)} x_{i, j}
-     *  < 2
-     */
-    
-    std::set<std::set<int>> violated_subsets;
-    //
-    std::set<int> S0;
-    std::set<int> tabu_N;
-    std::set<std::set<int>> tabu_S;
-    tabu_S.insert(ES_SEC.begin(), ES_SEC.end());
-    //
-    auto randIt = prmt.PD.begin();
-    advance(randIt, rand() % prmt.PD.size());
-    S0.insert(*randIt);
-    int min_i;
-    double min_lhs;
-    for (int i = 0; i < NUM_ITER; i++) {
-        min_i = -1;
-        min_lhs = DBL_MAX;
-        std::set<int> S1(S0);
-        if (S0.size() <= MIN_CAR_SUBSET) {
-            get_SEC_aS(SEC_no,
-                       tabu_S,
-                       tabu_N, S0, &min_i, &min_lhs, _x_ij, prmt);
-            S1.insert(min_i);
-        } else if (get_random_number() < PROBABILITY_ADD_NODE) {
-            get_SEC_aS(SEC_no,
-                       tabu_S,
-                       tabu_N, S0, &min_i, &min_lhs, _x_ij, prmt);
-            S1.insert(min_i);
+void SE1_cut::indentify_violatedConstrains(double **x_ij) {
+    indentify_seViolatedConstrains(x_ij,
+                                   new_sets,
+                                   existing_sets,
+                                   prob,
+                                   get_LHS_givenS<double, double>);
+}
+
+void SE2_cut::indentify_violatedConstrains(double **x_ij) {
+    indentify_seViolatedConstrains(x_ij,
+                                   new_sets,
+                                   existing_sets,
+                                   prob,
+                                   get_LHS_givenS<double, double>);
+}
+
+void SE1_cut::add_cuts(GRBModel *grbModel, GRBVar **x_ij) {
+    add_SE_cuts(grbModel, x_ij,
+                new_sets,
+                &num_generatedCuts,
+                ch_name,
+                existing_sets,
+                prob,
+                get_LHS_givenS<GRBVar, GRBLinExpr>);
+}
+
+void SE2_cut::add_cuts(GRBModel *grbModel, GRBVar **x_ij) {
+    add_SE_cuts(grbModel, x_ij,
+                new_sets,
+                &num_generatedCuts,
+                ch_name,
+                existing_sets,
+                prob,
+                get_LHS_givenS<GRBVar, GRBLinExpr>);
+}
+
+
+cut_composer::cut_composer(Problem *prob, std::vector<std::string> cut_names) {
+    for (std::string cn: cut_names) {
+        if (cn == "SE0") {
+            chs.push_back(new SE0_cut("SE0", prob));
+        } else if (cn == "SE1") {
+            chs.push_back(new SE1_cut("SE1", prob));
+        } else if (cn == "SE2") {
+            chs.push_back(new SE2_cut("SE2", prob));
         } else {
-            get_SEC_dS(SEC_no,
-                       tabu_S,
-                       tabu_N, S0, &min_i, &min_lhs, _x_ij, prmt);
-            S1.erase(min_i);
-            tabu_N.insert(min_i);
+            assert(false);
         }
-        if (min_i == -1) {
-            continue;
-        }
-//        printf("%d: size %d, min_i: %d, min_lhs: %.2f\n", i, (int) S1.size(), min_i, min_lhs);
-        if (min_lhs < 2.0) {
-            violated_subsets.insert(S1);
-            tabu_S.insert(S1);
-        }
-        S0.clear();
-        S0 = S1;
-    }
-    return violated_subsets;
-}
-
-
-void SubtourEliminationCut_heuristic::indentify_violatedConstrains(double **x_ij) {
-    assert(new_sets.size() == 0);
-    //
-    std::set<int> S0;
-    std::set<int> tabu_N;
-    std::set<std::set<int>> tabu_S;
-    tabu_S.insert(existing_sets.begin(), existing_sets.end());
-    //
-    auto randIt = (*prob).PD.begin();
-    advance(randIt, rand() % (*prob).PD.size());
-    S0.insert(*randIt);
-    int min_nid;
-    double min_lhs;
-    for (int i = 0; i < NUM_ITER; i++) {
-        min_nid = -1;
-        min_lhs = DBL_MAX;
-        std::set<int> S1(S0);
-        if (S0.size() <= MIN_CAR_SUBSET) {
-            find_new_nid_wMinLHS_wAddition(x_ij, S0, tabu_S, tabu_N,
-                                           &min_nid, &min_lhs);
-            S1.insert(min_nid);
-        } else if (get_random_number() < PROBABILITY_ADD_NODE) {
-            find_new_nid_wMinLHS_wAddition(x_ij, S0, tabu_S, tabu_N,
-                                           &min_nid, &min_lhs);
-            S1.insert(min_nid);
-        } else {
-            find_included_nid_wMinLHS_wDeletion(x_ij, S0, tabu_S, tabu_N,
-                                                          &min_nid, &min_lhs);
-            S1.erase(min_nid);
-            tabu_N.insert(min_nid);
-        }
-        if (min_nid == -1) {
-            continue;
-        }
-        if (min_lhs < 2.0) {
-            new_sets.insert(S1);
-            tabu_S.insert(S1);
-        }
-        S0.clear();
-        S0 = S1;
     }
 }
 
+cut_composer* cut_composer::clone() {
+    cut_composer *cc = new cut_composer();
+    for (cut_handler *ch : chs) {
+        cc->chs.push_back(ch->clone());
+    }
+    return cc;
+}
 
-void SubtourEliminationCut_heuristic::find_new_nid_wMinLHS_wAddition(double **x_ij, const std::set<int> &S0,
-                                std::set<std::set<int>> &tabu_S,
-                                            std::set<int> &tabu_N,
-                                            int *min_nid, double *min_lhs) {
-    // Get a new subset by adding a new node
-    for(int i: (*prob).PD) {
-        if(tabu_N.find(i) != tabu_N.end())
-            continue;
-        if (S0.find(i) != S0.end())
-            continue;
-        std::set<int> S1(S0);
-        S1.insert(i);
-        if (tabu_S.find(S1) != tabu_S.end())
-            continue;
-        double lhs = get_LHS_givenS(x_ij, S1);
-        if (lhs < *min_lhs) {
-            *min_lhs = lhs;
-            *min_nid = i;
-        }
-        S1.clear();
+void cut_composer::solve_seperation_problem(double **x_ij) {
+    for (cut_handler* ch: chs) {
+        ch->indentify_violatedConstrains(x_ij);
     }
 }
 
-void SubtourEliminationCut_heuristic::find_included_nid_wMinLHS_wDeletion(double **x_ij, const std::set<int> &S0,
-                                            std::set<std::set<int>> &tabu_S,
-                                                 std::set<int> &tabu_N,
-                                                 int *min_nid, double *min_lhs) {
-    // Get a new subset by removing the existing node
-    for(int i: S0) {
-        std::set<int> S1(S0);
-        S1.erase(i);
-        if (tabu_S.find(S1) != tabu_S.end())
-            continue;
-        double lhs = get_LHS_givenS(x_ij, S1);
-        if (lhs < *min_lhs) {
-            *min_lhs = lhs;
-            *min_nid = i;
-        }
-        S1.clear();
+void cut_composer::add_cuts(GRBModel *grbModel, GRBVar **x_ij) {
+    for (cut_handler* ch: chs) {
+        ch->add_cuts(grbModel, x_ij);
     }
 }
 
-
-double SE1_cut::get_LHS_givenS(double **x_ij, const std::set<int> &S) {
-    /*
-     * Valid subtour elimination constraint
-     *  \sum_{ i, j \in S} x_{i, j}
-     *   + \sum_{i \in \bar{S} \cap \sigma(S)} \sum_{j \in S} x_{i, j}
-     *   + \sum_{i \in \bar{S} \setminus \sigma(S)} \sum_{j \in S \cap \sigma(S)} x_{i, j}
-     *  <= |S| - 1
-     *
-     * Seperation inequality; 2 * x(\bar{S}) + x(\delta(S)) = 2|S|
-     *  \sum_{ i, j \in \delta(S)} x_{i, j}
-     *   - 2 * \sum_{i \in \bar{S} \cap \sigma(S)} \sum_{j \in S} x_{i, j}
-     *   - 2 * \sum_{i \in \bar{S} \setminus \sigma(S)} \sum_{j \in S \cap \sigma(S)} x_{i, j}
-     *  < 2
-     */
-    //
-    
-    double lhs = 0.0;
-    //
-    std::set<edge> delta_S = get_delta_S(S, *prob);
-    std::set<int> bar_S = get_bar_S(S, *prob);
-    std::set<int> sigma_S = get_sigma_S(S, *prob);
-    /*
-     * \sum_{ i, j \in \delta(S)} x_{i, j}
-     */
-    for (edge a: delta_S) {
-        lhs += x_ij[a.first][a.second];
+std::vector<int> cut_composer::get_numViolatedCnsts() {
+    std::vector<int> vec;
+    for (cut_handler* ch: chs) {
+        vec.push_back(ch->get_numIdentifiedConstraints());
     }
-    /*
-     * -2 * \sum_{i \in \bar{S} \cap \sigma(S)} \sum_{j \in S} x_{i, j}
-     */
-    for (int i: bar_S) {
-        if (sigma_S.find(i) == sigma_S.end())
-            continue;
-        for (int j: S) {
-            lhs -= 2 * x_ij[i][j];
-        }
-    }
-    /*
-     * -2 * \sum_{i \in \bar{S} \setminus \sigma(S)} \sum_{j \in S \cap \sigma(S)} x_{i, j}
-     */
-    for (int i: bar_S) {
-        if (sigma_S.find(i) != sigma_S.end())
-            continue;
-        for (int j: S) {
-            if (sigma_S.find(j) == sigma_S.end())
-                continue;
-            lhs -= 2 * x_ij[i][j];
-        }
-    }
-    //
-    return lhs;
-}
-
-
-double SE2_cut::get_LHS_givenS(double **x_ij, const std::set<int> &S) {
-    /*
-     * Valid subtour elimination constraint
-     *  \sum_{ i, j \in S} x_{i, j}
-     *   + \sum_{i \in S} \sum_{j \in \bar{S} \cap \pi(S)} x_{i, j}
-     *   + \sum_{i \in S \cap \pi(S)} \sum_{j \in \bar{S} \setminus \pi(S)} x_{i, j}
-     *  <= |S| - 1
-     *
-     * Seperation inequality; 2 * x(\bar{S}) + x(\delta(S)) = 2|S|
-     *  \sum_{ i, j \in \delta(S)} x_{i, j}
-     *   - 2 * \sum_{i \in S} \sum_{j \in \bar{S} \cap \pi(S)} x_{i, j}
-     *   - 2 * \sum_{i \in S \cap \pi(S)} \sum_{j \in \bar{S} \setminus \pi(S)} x_{i, j}
-     *  < 2
-     */
-    //
-    
-    double lhs = 0.0;
-    //
-    std::set<edge> delta_S = get_delta_S(S, *prob);
-    std::set<int> bar_S = get_bar_S(S, *prob);
-    std::set<int> pi_S = get_pi_S(S, *prob);
-    /*
-     * \sum_{ i, j \in \delta(S)} x_{i, j}
-     */
-    for (edge a: delta_S) {
-        lhs += x_ij[a.first][a.second];
-    }
-    /*
-     * - 2 * \sum_{i \in S} \sum_{j \in \bar{S} \cap \pi(S)} x_{i, j}
-     */
-    for (int i: S) {
-        for (int j: bar_S) {
-            if (pi_S.find(j) == pi_S.end())
-                continue;
-            lhs -= 2 * x_ij[i][j];
-        }
-    }
-    /*
-     * - 2 * \sum_{i \in S \cap \pi(S)} \sum_{j \in \bar{S} \setminus \pi(S)} x_{i, j}
-     */
-    for (int i: S) {
-        if (pi_S.find(i) == pi_S.end())
-            continue;
-        for (int j: bar_S) {
-            if (pi_S.find(j) != pi_S.end())
-                continue;
-            lhs -= 2 * x_ij[i][j];
-        }
-    }
-    //
-    return lhs;
+    return vec;
 }

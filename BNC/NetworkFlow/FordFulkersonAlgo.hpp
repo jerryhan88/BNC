@@ -22,7 +22,8 @@
 #include "graph.hpp"
 
 std::vector<std::array<int, 2>> get_minCut(double **graph, int V, int s, int t);
-
+void sendMaxFlow(double **rGraph, int numNodes, int source_id, int terminal_id, int parent[],
+                 double *max_flow);
 void test_GomoryHuTree();
 
 #endif /* FordFulkersonAlgo_hpp */
